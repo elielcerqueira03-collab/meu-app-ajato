@@ -243,6 +243,9 @@ def tela_principal():
             key="natureza_justica"
         )
     with col2:
+        # --- ALTERAÇÃO AQUI ---
+        # Adiciona um espaço em branco para alinhar verticalmente o botão com o selectbox ao lado.
+        st.write("") 
         iniciar_processamento = st.button("🚀 Iniciar Processamento", type="primary", use_container_width=True)
 
     # Abas para diferentes métodos de entrada
