@@ -14,11 +14,17 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# --- CREDENCIAIS (MODO SIMPLIFICADO) ---
-APP_PASSWORD = "senha123"  # <-- Sinta-se à vontade para trocar esta senha
+# --- CREDENCIAIS E CONSTANTES ---
+# ATENÇÃO: Em um ambiente de produção, utilize o st.secrets para armazenar informações sensíveis.
+# Ex: APP_PASSWORD = st.secrets["APP_PASSWORD"]
+APP_PASSWORD = "senha123"  # <-- Troque esta senha para algo mais seguro
+
+# Ex: DATAJUD_API_KEY = st.secrets["DATAJUD_API_KEY"]
 DATAJUD_API_KEY = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=="
 
+
 # --- DICIONÁRIOS DE ENDPOINTS ---
+# Dicionários foram mantidos como no original, pois são eficazes para esta aplicação.
 ENDPOINTS = {
     "Justiça Estadual": {
         "01": "https://api-publica.datajud.cnj.jus.br/api_publica_tjac/_search",
@@ -54,7 +60,24 @@ ENDPOINTS = {
     }
 }
 
+
 # --- FUNÇÕES AUXILIARES ---
+
+def formatar_cnj(numero: str) -> str:
+    """
+    Formata um número de processo de 20 dígitos no padrão CNJ.
+    Exemplo: 07108025520188020001 -> 0710802-55.2018.8.02.0001
+    """
+    # Remove qualquer caractere que não seja um dígito
+    num_limpo = re.sub(r'\D', '', str(numero))
+    
+    # Se o número não tiver 20 dígitos, retorna o original para evitar erros
+    if len(num_limpo) != 20:
+        return numero
+    
+    # Aplica a máscara de formatação
+    return f"{num_limpo[0:7]}-{num_limpo[7:9]}.{num_limpo[9:13]}.{num_limpo[13:14]}.{num_limpo[14:16]}.{num_limpo[16:20]}"
+
 
 def format_date(date_string: Optional[str]) -> str:
     """Tenta formatar uma data do formato ISO para DD/MM/AAAA."""
@@ -63,7 +86,7 @@ def format_date(date_string: Optional[str]) -> str:
     try:
         return datetime.fromisoformat(date_string.replace("Z", "+00:00")).strftime("%d/%m/%Y")
     except (ValueError, TypeError):
-        return date_string # Retorna o original se a formatação falhar
+        return date_string
 
 def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
     """Converte um dicionário de DataFrames para um arquivo Excel com múltiplas abas."""
@@ -71,12 +94,12 @@ def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in dfs.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
-            # Auto-ajuste da largura das colunas para melhor visualização
             for column in df:
                 column_length = max(df[column].astype(str).map(len).max(), len(column))
                 col_idx = df.columns.get_loc(column)
                 writer.sheets[sheet_name].set_column(col_idx, col_idx, column_length + 2)
     return output.getvalue()
+
 
 # --- LÓGICA PRINCIPAL DA APLICAÇÃO ---
 
@@ -109,28 +132,30 @@ def consultar_processo_datajud(session: requests.Session, numero_processo_cnj: s
         response.raise_for_status()
         return response.json()
     except requests.exceptions.HTTPError as e:
-        st.error(f"Erro HTTP {e.response.status_code} ao consultar {numero_processo_cnj}. O tribunal pode estar offline.")
+        st.error(f"Erro HTTP {e.response.status_code} ao consultar {numero_processo_cnj}. O tribunal pode estar offline ou a API Key pode ser inválida.")
     except requests.exceptions.RequestException as e:
         st.error(f"Erro de conexão ao consultar o processo {numero_processo_cnj}: {e}")
     return None
 
 def processar_lote_completo(processos: List[str], natureza: str):
-    """
-    Processa uma lista de processos, extraindo todos os movimentos e identificando
-    os possíveis encerramentos, replicando a lógica do script original.
-    """
+    """Processa uma lista de processos, extraindo todos os movimentos e identificando possíveis encerramentos."""
     todos_movimentos = []
     possiveis_encerramentos = []
     
     total_processos = len(processos)
+    if total_processos == 0:
+        st.warning("Nenhum número de processo foi fornecido.")
+        return
+
     progress_bar = st.progress(0, text="Iniciando processamento...")
     
     with requests.Session() as session:
-        for i, processo_cnj in enumerate(processos):
-            progress_text = f"Consultando {i+1}/{total_processos}: {processo_cnj}"
+        for i, processo_cnj_input in enumerate(processos):
+            processo_cnj_formatado = formatar_cnj(processo_cnj_input)
+            progress_text = f"Consultando {i+1}/{total_processos}: {processo_cnj_formatado}"
             progress_bar.progress((i + 1) / total_processos, text=progress_text)
             
-            resultado_api = consultar_processo_datajud(session, processo_cnj, natureza)
+            resultado_api = consultar_processo_datajud(session, processo_cnj_formatado, natureza)
             
             if resultado_api and resultado_api['hits']['total']['value'] > 0:
                 for hit in resultado_api['hits']['hits']:
@@ -142,13 +167,12 @@ def processar_lote_completo(processos: List[str], natureza: str):
                         for mov in dados['movimentos']:
                             nome_movimento = mov.get('movimentoNacional', {}).get('descricao') or mov.get('nome', 'N/A')
                             
-                            # Lógica para extrair complementos
                             nomes_complementos = 'N/A'
                             if 'complementosTabelados' in mov and mov['complementosTabelados']:
                                 nomes_complementos = " - ".join([comp['nome'] for comp in mov['complementosTabelados']])
                             
                             movimento_data = {
-                                "Processo": dados.get('numeroProcesso', processo_cnj),
+                                "Processo (CNJ)": processo_cnj_formatado,
                                 "Data Ajuizamento": data_ajuizamento_formatada,
                                 "Instância": instancia,
                                 "Data Movimento": format_date(mov.get('dataHora')),
@@ -157,35 +181,36 @@ def processar_lote_completo(processos: List[str], natureza: str):
                             }
                             todos_movimentos.append(movimento_data)
                             
-                            # Lógica para identificar encerramentos (arquivados/definitivos)
                             if re.search(r'definitiv|arquivad|baixado', nome_movimento, re.IGNORECASE):
                                 possiveis_encerramentos.append(movimento_data)
                     else:
-                        # Processo encontrado mas sem movimentos registrados
                         todos_movimentos.append({
-                            "Processo": processo_cnj, "Data Ajuizamento": data_ajuizamento_formatada, "Instância": instancia,
+                            "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": data_ajuizamento_formatada, "Instância": instancia,
                             "Data Movimento": "", "Movimentação": "Processo sem movimentos registrados na base", "Complemento": ""
                         })
             else:
-                # Processo não encontrado na API
                 todos_movimentos.append({
-                    "Processo": processo_cnj, "Data Ajuizamento": "", "Instância": "", "Data Movimento": "",
+                    "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": "", "Instância": "", "Data Movimento": "",
                     "Movimentação": "Processo não localizado na base do DataJud", "Complemento": ""
                 })
 
     progress_bar.empty()
     st.session_state.df_resultados = pd.DataFrame(todos_movimentos)
     st.session_state.df_encerramentos = pd.DataFrame(possiveis_encerramentos)
+    st.success("Processamento concluído com sucesso!")
+
 
 # --- INTERFACE (UI) ---
 
 def tela_login():
     """Exibe a tela de login e gerencia a autenticação."""
     st.title("⚖️ Consultor de Processos Judiciais")
-    st.markdown("---")
+    st.subheader("Login de Acesso")
+    
     with st.form("login_form"):
-        password = st.text_input("Senha", type="password")
-        if st.form_submit_button("Entrar"):
+        password = st.text_input("Senha", type="password", key="password_input")
+        submitted = st.form_submit_button("Entrar", use_container_width=True)
+        if submitted:
             if password == APP_PASSWORD:
                 st.session_state.logged_in = True
                 st.rerun()
@@ -195,52 +220,76 @@ def tela_login():
 def tela_principal():
     """Exibe a interface principal da aplicação após o login."""
     with st.sidebar:
-        st.title("⚖️ Consultor")
+        st.title("⚖️ Consultor de Processos")
         st.markdown("---")
         st.write("Bem-vindo(a)!")
-        if st.button("Sair"):
+        if st.button("Sair", use_container_width=True):
             st.session_state.logged_in = False
+            # Limpa o estado da sessão para garantir que os resultados antigos não apareçam
+            for key in st.session_state.keys():
+                if key != 'logged_in':
+                    del st.session_state[key]
             st.rerun()
 
-    st.title("Consulta de Movimentos e Arquivamentos via DataJud/CNJ")
-    st.markdown("Faça o upload de uma planilha Excel (`.xlsx`) com uma coluna chamada **'Processo'**.")
-    
-    controls_container = st.container(border=True)
-    with controls_container:
-        col1, col2 = st.columns([2, 1])
-        with col1:
-            uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx"], label_visibility="collapsed")
-        with col2:
-            natureza = st.selectbox("Natureza da Justiça", ["Justiça do Trabalho", "Justiça Estadual"])
-            
-        if uploaded_file:
-            if st.button("▶️ Iniciar Processamento", type="primary", use_container_width=True):
-                try:
-                    df = pd.read_excel(uploaded_file)
-                    if "Processo" in df.columns:
-                        processos = df['Processo'].astype(str).str.strip().tolist()
-                        with st.spinner('Aguarde, consultando processos... Isso pode levar alguns minutos.'):
-                            processar_lote_completo(processos, natureza)
-                    else:
-                        st.error("Erro: A planilha deve conter uma coluna chamada 'Processo'.")
-                except Exception as e:
-                    st.error(f"Erro ao ler o arquivo Excel: {e}")
+    st.title("Consulta de Movimentos e Arquivamentos de Processos")
+    st.info("Escolha uma opção: faça o upload de uma planilha Excel ou insira os números dos processos manualmente.")
 
+    # Controles de Natureza da Justiça e Início do Processamento
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        natureza = st.selectbox(
+            "Selecione a Natureza da Justiça",
+            ["Justiça do Trabalho", "Justiça Estadual"],
+            key="natureza_justica"
+        )
+    with col2:
+        iniciar_processamento = st.button("🚀 Iniciar Processamento", type="primary", use_container_width=True)
+
+    # Abas para diferentes métodos de entrada
+    tab_upload, tab_manual = st.tabs(["📤 Upload de Arquivo", "✍️ Digitar Números"])
+    
+    processos_para_consultar = []
+
+    with tab_upload:
+        st.markdown("A planilha deve ter o formato `.xlsx` e conter uma coluna chamada **'Processo'**.")
+        uploaded_file = st.file_uploader("Selecione o arquivo Excel", type=["xlsx"], label_visibility="collapsed")
+        if iniciar_processamento and uploaded_file:
+            try:
+                df = pd.read_excel(uploaded_file)
+                if "Processo" in df.columns:
+                    processos_para_consultar = df['Processo'].astype(str).str.strip().tolist()
+                else:
+                    st.error("Erro: A planilha deve conter uma coluna chamada 'Processo'.")
+            except Exception as e:
+                st.error(f"Erro ao ler o arquivo Excel: {e}")
+
+    with tab_manual:
+        st.markdown("Cole a lista de processos abaixo, um por linha.")
+        processos_texto = st.text_area("Números dos Processos", height=200, label_visibility="collapsed", placeholder="0710802-55.2018.8.02.0001\n8000570-84.2023.8.05.0191\n...")
+        if iniciar_processamento and processos_texto:
+            # Limpa e divide os processos, removendo linhas vazias
+            processos_para_consultar = [p.strip() for p in processos_texto.split('\n') if p.strip()]
+
+    if iniciar_processamento and processos_para_consultar:
+        with st.spinner('Aguarde, consultando processos... Isso pode levar alguns minutos.'):
+            processar_lote_completo(processos_para_consultar, natureza)
+
+    # --- Área de Resultados ---
     if 'df_resultados' in st.session_state and not st.session_state.df_resultados.empty:
         st.markdown("---")
-        st.subheader("Resultados da Consulta")
+        st.subheader("📊 Resultados da Consulta")
         
         df_resultados = st.session_state.df_resultados
         df_encerramentos = st.session_state.df_encerramentos
         
-        total_consultado = df_resultados['Processo'].nunique()
-        total_encontrado = df_resultados[~df_resultados['Movimentação'].str.contains("não localizado", na=False)]['Processo'].nunique()
-        total_arquivados = df_encerramentos['Processo'].nunique()
+        total_consultado = df_resultados['Processo (CNJ)'].nunique()
+        total_encontrado = df_resultados[~df_resultados['Movimentação'].str.contains("não localizado", na=False)]['Processo (CNJ)'].nunique()
+        total_arquivados = df_encerramentos['Processo (CNJ)'].nunique()
         
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Processos Consultados", total_consultado)
-        col2.metric("Processos Encontrados", total_encontrado)
-        col3.metric("Processos com Indicação de Arquivamento", total_arquivados)
+        col_m1, col_m2, col_m3 = st.columns(3)
+        col_m1.metric("Processos Consultados", total_consultado)
+        col_m2.metric("Processos Encontrados", total_encontrado)
+        col_m3.metric("Com Indicação de Arquivamento", total_arquivados)
 
         excel_data = to_excel({
             'Todos os Movimentos': df_resultados,
@@ -249,23 +298,24 @@ def tela_principal():
         st.download_button(
             label="📥 Baixar Relatório Completo em Excel",
             data=excel_data,
-            file_name=f"relatorio_processos_{natureza.replace(' ', '_').lower()}.xlsx",
+            file_name=f"relatorio_processos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
         
-        tab1, tab2 = st.tabs(["📁 Possíveis Encerramentos", "📖 Todos os Movimentos"])
-        with tab1:
+        tab_res1, tab_res2 = st.tabs(["📁 Possíveis Encerramentos", "📖 Todos os Movimentos"])
+        with tab_res1:
             st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam arquivamento ou baixa definitiva.")
-            st.dataframe(df_encerramentos, use_container_width=True)
-        with tab2:
+            st.dataframe(df_encerramentos, use_container_width=True, height=400)
+        with tab_res2:
             st.write(f"Total de {len(df_resultados)} movimentos encontrados para os processos consultados.")
-            st.dataframe(df_resultados, use_container_width=True)
+            st.dataframe(df_resultados, use_container_width=True, height=600)
 
 # --- INICIALIZAÇÃO E CONTROLE DE FLUXO ---
 def main():
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
+    
     if st.session_state.logged_in:
         tela_principal()
     else:
