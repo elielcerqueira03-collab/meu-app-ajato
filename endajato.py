@@ -63,7 +63,7 @@ def format_date(date_string: Optional[str]) -> str:
     try:
         return datetime.fromisoformat(date_string.replace("Z", "+00:00")).strftime("%d/%m/%Y")
     except (ValueError, TypeError):
-        return date_string
+        return date_string # Retorna o original se a formatação falhar
 
 def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
     """Converte um dicionário de DataFrames para um arquivo Excel com múltiplas abas."""
@@ -71,6 +71,7 @@ def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         for sheet_name, df in dfs.items():
             df.to_excel(writer, sheet_name=sheet_name, index=False)
+            # Auto-ajuste da largura das colunas para melhor visualização
             for column in df:
                 column_length = max(df[column].astype(str).map(len).max(), len(column))
                 col_idx = df.columns.get_loc(column)
@@ -141,6 +142,7 @@ def processar_lote_completo(processos: List[str], natureza: str):
                         for mov in dados['movimentos']:
                             nome_movimento = mov.get('movimentoNacional', {}).get('descricao') or mov.get('nome', 'N/A')
                             
+                            # Lógica para extrair complementos
                             nomes_complementos = 'N/A'
                             if 'complementosTabelados' in mov and mov['complementosTabelados']:
                                 nomes_complementos = " - ".join([comp['nome'] for comp in mov['complementosTabelados']])
@@ -155,17 +157,17 @@ def processar_lote_completo(processos: List[str], natureza: str):
                             }
                             todos_movimentos.append(movimento_data)
                             
-                            # --- LÓGICA AJUSTADA ---
-                            # Apenas movimentos com "definitivo" no nome, e que não sejam de "baixa".
-                            nome_movimento_lower = nome_movimento.lower()
-                            if 'definitivo' in nome_movimento_lower and 'baixa' not in nome_movimento_lower:
+                            # Lógica para identificar encerramentos (arquivados/definitivos)
+                            if re.search(r'definitiv|arquivad|baixado', nome_movimento, re.IGNORECASE):
                                 possiveis_encerramentos.append(movimento_data)
                     else:
+                        # Processo encontrado mas sem movimentos registrados
                         todos_movimentos.append({
                             "Processo": processo_cnj, "Data Ajuizamento": data_ajuizamento_formatada, "Instância": instancia,
                             "Data Movimento": "", "Movimentação": "Processo sem movimentos registrados na base", "Complemento": ""
                         })
             else:
+                # Processo não encontrado na API
                 todos_movimentos.append({
                     "Processo": processo_cnj, "Data Ajuizamento": "", "Instância": "", "Data Movimento": "",
                     "Movimentação": "Processo não localizado na base do DataJud", "Complemento": ""
@@ -238,11 +240,11 @@ def tela_principal():
         col1, col2, col3 = st.columns(3)
         col1.metric("Processos Consultados", total_consultado)
         col2.metric("Processos Encontrados", total_encontrado)
-        col3.metric("Processos com Arquivamento Definitivo", total_arquivados) # Label da métrica atualizada
+        col3.metric("Processos com Indicação de Arquivamento", total_arquivados)
 
         excel_data = to_excel({
             'Todos os Movimentos': df_resultados,
-            'Encerramentos Definitivos': df_encerramentos # Nome da aba atualizado
+            'Possíveis Encerramentos': df_encerramentos
         })
         st.download_button(
             label="📥 Baixar Relatório Completo em Excel",
@@ -252,9 +254,9 @@ def tela_principal():
             use_container_width=True
         )
         
-        tab1, tab2 = st.tabs(["📁 Encerramentos Definitivos", "📖 Todos os Movimentos"]) # Nome da aba atualizado
+        tab1, tab2 = st.tabs(["📁 Possíveis Encerramentos", "📖 Todos os Movimentos"])
         with tab1:
-            st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam um encerramento definitivo (sem baixa).")
+            st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam arquivamento ou baixa definitiva.")
             st.dataframe(df_encerramentos, use_container_width=True)
         with tab2:
             st.write(f"Total de {len(df_resultados)} movimentos encontrados para os processos consultados.")
