@@ -234,19 +234,23 @@ def tela_principal():
     st.title("Consulta de Movimentos e Arquivamentos de Processos")
     st.info("Escolha uma opção: faça o upload de uma planilha Excel ou insira os números dos processos manualmente.")
 
+    # --- ÁREA DA CORREÇÃO ---
     # Controles de Natureza da Justiça e Início do Processamento
     col1, col2 = st.columns([2, 1])
     with col1:
+        # Criamos o rótulo manualmente com markdown
+        st.markdown("Selecione a Natureza da Justiça")
         natureza = st.selectbox(
-            "Selecione a Natureza da Justiça",
+            "Selecione a Natureza da Justiça",  # O texto aqui é ignorado, mas necessário
             ["Justiça do Trabalho", "Justiça Estadual"],
-            key="natureza_justica"
+            key="natureza_justica",
+            label_visibility="collapsed"  # Escondemos o rótulo padrão
         )
     with col2:
-        # --- ALTERAÇÃO AQUI ---
-        # Adiciona um espaço em branco para alinhar verticalmente o botão com o selectbox ao lado.
-        st.write("") 
+        # Criamos um rótulo "invisível" para alinhar o botão
+        st.markdown("&nbsp;") # &nbsp; é um espaço em branco que força a altura do rótulo
         iniciar_processamento = st.button("🚀 Iniciar Processamento", type="primary", use_container_width=True)
+    # --- FIM DA ÁREA DA CORREÇÃO ---
 
     # Abas para diferentes métodos de entrada
     tab_upload, tab_manual = st.tabs(["📤 Upload de Arquivo", "✍️ Digitar Números"])
