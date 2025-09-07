@@ -1,0 +1,14 @@
+# Arquivo de Configuração do Tema do Streamlit
+# .streamlit/config.toml
+
+[theme]
+
+# Define a base do tema como "light" (claro/branco).
+base="light"
+
+# Cor principal para elementos interativos como botões e widgets.
+# Sugestão: Usei o tom de azul escuro da sua logo para manter a identidade visual.
+primaryColor="#0A4A64"
+
+# Cor do texto principal.
+textColor="#262730"
