@@ -24,7 +24,6 @@ DATAJUD_API_KEY = "cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw=="
 
 
 # --- DICIONÁRIOS DE ENDPOINTS ---
-# Dicionários foram mantidos como no original, pois são eficazes para esta aplicação.
 ENDPOINTS = {
     "Justiça Estadual": {
         "01": "https://api-publica.datajud.cnj.jus.br/api_publica_tjac/_search",
@@ -68,14 +67,9 @@ def formatar_cnj(numero: str) -> str:
     Formata um número de processo de 20 dígitos no padrão CNJ.
     Exemplo: 07108025520188020001 -> 0710802-55.2018.8.02.0001
     """
-    # Remove qualquer caractere que não seja um dígito
     num_limpo = re.sub(r'\D', '', str(numero))
-    
-    # Se o número não tiver 20 dígitos, retorna o original para evitar erros
     if len(num_limpo) != 20:
         return numero
-    
-    # Aplica a máscara de formatação
     return f"{num_limpo[0:7]}-{num_limpo[7:9]}.{num_limpo[9:13]}.{num_limpo[13:14]}.{num_limpo[14:16]}.{num_limpo[16:20]}"
 
 
@@ -88,16 +82,41 @@ def format_date(date_string: Optional[str]) -> str:
     except (ValueError, TypeError):
         return date_string
 
+# --- ALTERAÇÃO 3: FUNÇÃO MODIFICADA PARA ESTILIZAR O CABEÇALHO DO EXCEL ---
 def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
-    """Converte um dicionário de DataFrames para um arquivo Excel com múltiplas abas."""
+    """
+    Converte um dicionário de DataFrames para um arquivo Excel com múltiplas abas
+    e aplica um estilo ao cabeçalho.
+    """
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        workbook = writer.book
+        # Define um formato para o cabeçalho: negrito, fundo colorido e bordas
+        header_format = workbook.add_format({
+            'bold': True,
+            'text_wrap': True,
+            'valign': 'top',
+            'fg_color': '#4F81BD',  # Um tom de azul profissional
+            'font_color': 'white',
+            'border': 1
+        })
+
         for sheet_name, df in dfs.items():
-            df.to_excel(writer, sheet_name=sheet_name, index=False)
-            for column in df:
+            # Escreve o DataFrame no Excel sem o cabeçalho padrão
+            df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+            
+            worksheet = writer.sheets[sheet_name]
+            
+            # Escreve o cabeçalho manualmente usando o formato criado
+            for col_num, value in enumerate(df.columns.values):
+                worksheet.write(0, col_num, value, header_format)
+            
+            # Lógica para auto-ajustar a largura das colunas (mantida)
+            for i, column in enumerate(df.columns):
                 column_length = max(df[column].astype(str).map(len).max(), len(column))
-                col_idx = df.columns.get_loc(column)
-                writer.sheets[sheet_name].set_column(col_idx, col_idx, column_length + 2)
+                # Adiciona um pouco de espaço extra
+                worksheet.set_column(i, i, column_length + 2)
+                
     return output.getvalue()
 
 
@@ -181,7 +200,9 @@ def processar_lote_completo(processos: List[str], natureza: str):
                             }
                             todos_movimentos.append(movimento_data)
                             
-                            if re.search(r'definitiv|arquivad|baixado', nome_movimento, re.IGNORECASE):
+                            # --- ALTERAÇÃO 1: LÓGICA DE ENCERRAMENTO REFINADA ---
+                            # Agora busca apenas por "Definitivo" ou "Arquivado", ignorando "Baixa".
+                            if re.search(r'definitivo|arquivado', nome_movimento, re.IGNORECASE) and not re.search(r'baixa', nome_movimento, re.IGNORECASE):
                                 possiveis_encerramentos.append(movimento_data)
                     else:
                         todos_movimentos.append({
@@ -225,7 +246,6 @@ def tela_principal():
         st.write("Bem-vindo(a)!")
         if st.button("Sair", use_container_width=True):
             st.session_state.logged_in = False
-            # Limpa o estado da sessão para garantir que os resultados antigos não apareçam
             for key in st.session_state.keys():
                 if key != 'logged_in':
                     del st.session_state[key]
@@ -234,25 +254,19 @@ def tela_principal():
     st.title("Consulta de Movimentos e Arquivamentos de Processos")
     st.info("Escolha uma opção: faça o upload de uma planilha Excel ou insira os números dos processos manualmente.")
 
-    # --- ÁREA DA CORREÇÃO ---
-    # Controles de Natureza da Justiça e Início do Processamento
     col1, col2 = st.columns([2, 1])
     with col1:
-        # Criamos o rótulo manualmente com markdown
         st.markdown("Selecione a Natureza da Justiça")
         natureza = st.selectbox(
-            "Selecione a Natureza da Justiça",  # O texto aqui é ignorado, mas necessário
+            "Selecione a Natureza da Justiça",
             ["Justiça do Trabalho", "Justiça Estadual"],
             key="natureza_justica",
-            label_visibility="collapsed"  # Escondemos o rótulo padrão
+            label_visibility="collapsed"
         )
     with col2:
-        # Criamos um rótulo "invisível" para alinhar o botão
-        st.markdown("&nbsp;") # &nbsp; é um espaço em branco que força a altura do rótulo
+        st.markdown("&nbsp;")
         iniciar_processamento = st.button("🚀 Iniciar Processamento", type="primary", use_container_width=True)
-    # --- FIM DA ÁREA DA CORREÇÃO ---
 
-    # Abas para diferentes métodos de entrada
     tab_upload, tab_manual = st.tabs(["📤 Upload de Arquivo", "✍️ Digitar Números"])
     
     processos_para_consultar = []
@@ -274,14 +288,12 @@ def tela_principal():
         st.markdown("Cole a lista de processos abaixo, um por linha.")
         processos_texto = st.text_area("Números dos Processos", height=200, label_visibility="collapsed", placeholder="0710802-55.2018.8.02.0001\n8000570-84.2023.8.05.0191\n...")
         if iniciar_processamento and processos_texto:
-            # Limpa e divide os processos, removendo linhas vazias
             processos_para_consultar = [p.strip() for p in processos_texto.split('\n') if p.strip()]
 
     if iniciar_processamento and processos_para_consultar:
         with st.spinner('Aguarde, consultando processos... Isso pode levar alguns minutos.'):
             processar_lote_completo(processos_para_consultar, natureza)
 
-    # --- Área de Resultados ---
     if 'df_resultados' in st.session_state and not st.session_state.df_resultados.empty:
         st.markdown("---")
         st.subheader("📊 Resultados da Consulta")
@@ -298,21 +310,23 @@ def tela_principal():
         col_m2.metric("Processos Encontrados", total_encontrado)
         col_m3.metric("Com Indicação de Arquivamento", total_arquivados)
 
+        # --- ALTERAÇÃO 2: SIMPLIFICAÇÃO DO DICIONÁRIO PARA GERAR O EXCEL ---
+        # Agora passamos apenas o DataFrame de encerramentos.
         excel_data = to_excel({
-            'Todos os Movimentos': df_resultados,
             'Possíveis Encerramentos': df_encerramentos
         })
         st.download_button(
-            label="📥 Baixar Relatório Completo em Excel",
+            label="📥 Baixar Relatório de Encerramentos em Excel",
             data=excel_data,
-            file_name=f"relatorio_processos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+            file_name=f"relatorio_encerramentos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True
         )
         
+        # A exibição na tela continua com as duas abas, mas o download foi alterado.
         tab_res1, tab_res2 = st.tabs(["📁 Possíveis Encerramentos", "📖 Todos os Movimentos"])
         with tab_res1:
-            st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam arquivamento ou baixa definitiva.")
+            st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam arquivamento definitivo.")
             st.dataframe(df_encerramentos, use_container_width=True, height=400)
         with tab_res2:
             st.write(f"Total de {len(df_resultados)} movimentos encontrados para os processos consultados.")
