@@ -82,7 +82,6 @@ def format_date(date_string: Optional[str]) -> str:
     except (ValueError, TypeError):
         return date_string
 
-# --- ALTERAÇÃO 3: FUNÇÃO MODIFICADA PARA ESTILIZAR O CABEÇALHO DO EXCEL ---
 def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
     """
     Converte um dicionário de DataFrames para um arquivo Excel com múltiplas abas
@@ -102,19 +101,26 @@ def to_excel(dfs: Dict[str, pd.DataFrame]) -> bytes:
         })
 
         for sheet_name, df in dfs.items():
-            # Escreve o DataFrame no Excel sem o cabeçalho padrão
-            df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1)
+            # Escreve o DataFrame no Excel sem o cabeçalho padrão, começando na linha 2 (índice 1)
+            # CORREÇÃO: Adicionado header=False para evitar o cabeçalho duplicado
+            df.to_excel(writer, sheet_name=sheet_name, index=False, startrow=1, header=False)
             
             worksheet = writer.sheets[sheet_name]
             
-            # Escreve o cabeçalho manualmente usando o formato criado
+            # Escreve o cabeçalho manualmente na linha 1 (índice 0) usando o formato criado
             for col_num, value in enumerate(df.columns.values):
                 worksheet.write(0, col_num, value, header_format)
             
-            # Lógica para auto-ajustar a largura das colunas (mantida)
+            # Lógica para auto-ajustar a largura das colunas
             for i, column in enumerate(df.columns):
-                column_length = max(df[column].astype(str).map(len).max(), len(column))
-                # Adiciona um pouco de espaço extra
+                # A lógica de cálculo do tamanho foi aprimorada para evitar erro em colunas vazias
+                try:
+                    column_data_length = df[column].astype(str).map(len).max()
+                except (ValueError, TypeError): # Lida com o caso de coluna totalmente vazia
+                    column_data_length = 0
+                    
+                column_header_length = len(column)
+                column_length = max(column_data_length, column_header_length)
                 worksheet.set_column(i, i, column_length + 2)
                 
     return output.getvalue()
@@ -200,8 +206,6 @@ def processar_lote_completo(processos: List[str], natureza: str):
                             }
                             todos_movimentos.append(movimento_data)
                             
-                            # --- ALTERAÇÃO 1: LÓGICA DE ENCERRAMENTO REFINADA ---
-                            # Agora busca apenas por "Definitivo" ou "Arquivado", ignorando "Baixa".
                             if re.search(r'definitivo|arquivado', nome_movimento, re.IGNORECASE) and not re.search(r'baixa', nome_movimento, re.IGNORECASE):
                                 possiveis_encerramentos.append(movimento_data)
                     else:
@@ -310,8 +314,6 @@ def tela_principal():
         col_m2.metric("Processos Encontrados", total_encontrado)
         col_m3.metric("Com Indicação de Arquivamento", total_arquivados)
 
-        # --- ALTERAÇÃO 2: SIMPLIFICAÇÃO DO DICIONÁRIO PARA GERAR O EXCEL ---
-        # Agora passamos apenas o DataFrame de encerramentos.
         excel_data = to_excel({
             'Possíveis Encerramentos': df_encerramentos
         })
@@ -323,7 +325,6 @@ def tela_principal():
             use_container_width=True
         )
         
-        # A exibição na tela continua com as duas abas, mas o download foi alterado.
         tab_res1, tab_res2 = st.tabs(["📁 Possíveis Encerramentos", "📖 Todos os Movimentos"])
         with tab_res1:
             st.write(f"Encontrados {len(df_encerramentos)} movimentos que indicam arquivamento definitivo.")
