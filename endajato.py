@@ -7,7 +7,6 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime
 
 # --- CONFIGURAÇÃO DA PÁGINA ---
-# --- ALTERAÇÃO: ATUALIZADO PARA O NOME JUDSCAN ---
 st.set_page_config(
     page_title="Judscan",
     page_icon="⚖️",
@@ -184,13 +183,12 @@ def processar_lote_completo(processos: List[str], natureza: str):
 
 def tela_login():
     """Exibe a tela de login e gerencia a autenticação."""
-    # --- ALTERAÇÃO: ADICIONANDO LOGO E CENTRALIZANDO ---
     try:
         col1, col2, col3 = st.columns([1, 2, 1])
         with col2:
-            st.image("logo.png", use_column_width='auto')
+            # --- CORREÇÃO: Parâmetro atualizado de 'use_column_width' para 'use_container_width' ---
+            st.image("logo.png", use_container_width=True)
     except Exception:
-        # Se a imagem falhar, mostra o título
         st.title("Judscan")
         st.warning("Arquivo 'logo.png' não encontrado. Certifique-se que está na mesma pasta do script.")
 
@@ -208,11 +206,11 @@ def tela_login():
 def tela_principal():
     """Exibe a interface principal da aplicação após o login."""
     with st.sidebar:
-        # --- ALTERAÇÃO: SUBSTITUINDO TÍTULO PELA LOGO NA SIDEBAR ---
         try:
-            st.image("logo.png", use_column_width=True)
+            # --- CORREÇÃO: Parâmetro atualizado de 'use_column_width' para 'use_container_width' ---
+            st.image("logo.png", use_container_width=True)
         except Exception:
-            st.title("Judscan") # Mostra o nome se a imagem falhar
+            st.title("Judscan")
         st.markdown("---")
         st.write("Bem-vindo(a)!")
         if st.button("Sair", use_container_width=True):
@@ -222,7 +220,6 @@ def tela_principal():
                     del st.session_state[key]
             st.rerun()
 
-    # --- ALTERAÇÃO: ATUALIZANDO TÍTULO PRINCIPAL ---
     st.title("Consulta de Movimentos e Arquivamentos de Processos")
     st.info("Escolha uma opção: faça o upload de uma planilha Excel ou insira os números dos processos manualmente.")
 
