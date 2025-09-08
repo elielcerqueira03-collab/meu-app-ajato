@@ -161,10 +161,9 @@ def processar_lote_completo(processos: List[str], natureza: str):
                     instancia = dados.get('grau', '')
                     
                     if 'movimentos' in dados and dados['movimentos']:
-                        # NOVO: Ordenar os movimentos por data para garantir a sequência correta
-                        movimentos_ordenados = sorted(dados['movimentos'], key=lambda m: m.get('dataHora', ''), reverse=False)
+                        # CORREÇÃO APLICADA AQUI: Garante que o valor da chave seja sempre uma string
+                        movimentos_ordenados = sorted(dados['movimentos'], key=lambda m: m.get('dataHora') or '', reverse=False)
                         
-                        # ALTERADO: Iterar sobre a lista ordenada com um índice
                         for index, mov in enumerate(movimentos_ordenados):
                             nome_movimento = mov.get('movimentoNacional', {}).get('descricao') or mov.get('nome', 'N/A')
                             nomes_complementos = 'N/A'
@@ -179,29 +178,22 @@ def processar_lote_completo(processos: List[str], natureza: str):
                                 "Movimentação": nome_movimento, 
                                 "Complemento": nomes_complementos
                             }
-                            # Adiciona todos os movimentos à lista principal, como antes
                             todos_movimentos.append(movimento_data)
                             
-                            # ALTERADO: Nova lógica para verificar o arquivamento
-                            # Verifica se o movimento atual parece ser de arquivamento
                             is_arquivamento = re.search(r'definitivo|arquivado', nome_movimento, re.IGNORECASE) and not re.search(r'baixa', nome_movimento, re.IGNORECASE)
                             
                             if is_arquivamento:
-                                # NOVO: Calcula quantos movimentos existem DEPOIS do atual
                                 movimentos_posteriores = len(movimentos_ordenados) - 1 - index
                                 
-                                # NOVO: Aplica a regra: só considera arquivamento se houver 3 ou menos movimentos depois
                                 if movimentos_posteriores <= 3:
                                     possiveis_encerramentos.append(movimento_data)
                     else:
-                        # Caso o processo não tenha movimentos registrados
                         todos_movimentos.append({
                             "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": data_ajuizamento_formatada, 
                             "Instância": instancia, "Data Movimento": "", 
                             "Movimentação": "Processo sem movimentos registrados na base", "Complemento": ""
                         })
             else:
-                # Caso o processo não seja localizado
                 todos_movimentos.append({
                     "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": "", "Instância": "", 
                     "Data Movimento": "", "Movimentação": "Processo não localizado na base do DataJud", "Complemento": ""
