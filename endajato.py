@@ -143,41 +143,74 @@ def processar_lote_completo(processos: List[str], natureza: str):
     if total_processos == 0:
         st.warning("Nenhum número de processo foi fornecido.")
         return
+        
     progress_bar = st.progress(0, text="Iniciando processamento...")
+    
     with requests.Session() as session:
         for i, processo_cnj_input in enumerate(processos):
             processo_cnj_formatado = formatar_cnj(processo_cnj_input)
             progress_text = f"Consultando {i+1}/{total_processos}: {processo_cnj_formatado}"
             progress_bar.progress((i + 1) / total_processos, text=progress_text)
+            
             resultado_api = consultar_processo_datajud(session, processo_cnj_formatado, natureza)
+            
             if resultado_api and resultado_api['hits']['total']['value'] > 0:
                 for hit in resultado_api['hits']['hits']:
                     dados = hit['_source']
                     data_ajuizamento_formatada = format_date(dados.get('dataAjuizamento'))
                     instancia = dados.get('grau', '')
+                    
                     if 'movimentos' in dados and dados['movimentos']:
-                        for mov in dados['movimentos']:
+                        # NOVO: Ordenar os movimentos por data para garantir a sequência correta
+                        movimentos_ordenados = sorted(dados['movimentos'], key=lambda m: m.get('dataHora', ''), reverse=False)
+                        
+                        # ALTERADO: Iterar sobre a lista ordenada com um índice
+                        for index, mov in enumerate(movimentos_ordenados):
                             nome_movimento = mov.get('movimentoNacional', {}).get('descricao') or mov.get('nome', 'N/A')
                             nomes_complementos = 'N/A'
                             if 'complementosTabelados' in mov and mov['complementosTabelados']:
                                 nomes_complementos = " - ".join([comp['nome'] for comp in mov['complementosTabelados']])
+                            
                             movimento_data = {
-                                "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": data_ajuizamento_formatada,
-                                "Instância": instancia, "Data Movimento": format_date(mov.get('dataHora')),
-                                "Movimentação": nome_movimento, "Complemento": nomes_complementos
+                                "Processo (CNJ)": processo_cnj_formatado, 
+                                "Data Ajuizamento": data_ajuizamento_formatada,
+                                "Instância": instancia, 
+                                "Data Movimento": format_date(mov.get('dataHora')),
+                                "Movimentação": nome_movimento, 
+                                "Complemento": nomes_complementos
                             }
+                            # Adiciona todos os movimentos à lista principal, como antes
                             todos_movimentos.append(movimento_data)
-                            if re.search(r'definitivo|arquivado', nome_movimento, re.IGNORECASE) and not re.search(r'baixa', nome_movimento, re.IGNORECASE):
-                                possiveis_encerramentos.append(movimento_data)
+                            
+                            # ALTERADO: Nova lógica para verificar o arquivamento
+                            # Verifica se o movimento atual parece ser de arquivamento
+                            is_arquivamento = re.search(r'definitivo|arquivado', nome_movimento, re.IGNORECASE) and not re.search(r'baixa', nome_movimento, re.IGNORECASE)
+                            
+                            if is_arquivamento:
+                                # NOVO: Calcula quantos movimentos existem DEPOIS do atual
+                                movimentos_posteriores = len(movimentos_ordenados) - 1 - index
+                                
+                                # NOVO: Aplica a regra: só considera arquivamento se houver 3 ou menos movimentos depois
+                                if movimentos_posteriores <= 3:
+                                    possiveis_encerramentos.append(movimento_data)
                     else:
-                        todos_movimentos.append({"Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": data_ajuizamento_formatada, "Instância": instancia, "Data Movimento": "", "Movimentação": "Processo sem movimentos registrados na base", "Complemento": ""})
+                        # Caso o processo não tenha movimentos registrados
+                        todos_movimentos.append({
+                            "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": data_ajuizamento_formatada, 
+                            "Instância": instancia, "Data Movimento": "", 
+                            "Movimentação": "Processo sem movimentos registrados na base", "Complemento": ""
+                        })
             else:
-                todos_movimentos.append({"Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": "", "Instância": "", "Data Movimento": "", "Movimentação": "Processo não localizado na base do DataJud", "Complemento": ""})
+                # Caso o processo não seja localizado
+                todos_movimentos.append({
+                    "Processo (CNJ)": processo_cnj_formatado, "Data Ajuizamento": "", "Instância": "", 
+                    "Data Movimento": "", "Movimentação": "Processo não localizado na base do DataJud", "Complemento": ""
+                })
+
     progress_bar.empty()
     st.session_state.df_resultados = pd.DataFrame(todos_movimentos)
     st.session_state.df_encerramentos = pd.DataFrame(possiveis_encerramentos)
     st.success("Processamento concluído com sucesso!")
-
 
 # --- INTERFACE (UI) ---
 
